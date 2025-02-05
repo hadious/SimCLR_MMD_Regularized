@@ -13,6 +13,15 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
+
+
+def poincare_distance(x, y):
+    norm_x = torch.norm(x, dim=-1, keepdim=True)
+    norm_y = torch.norm(y, dim=-1, keepdim=True)
+    return torch.acosh(1 + 2 * (torch.norm(x - y, dim=-1)**2) / ((1 - norm_x**2) * (1 - norm_y**2)))
+
+
+
 def reset_batchnorm_running_stats(model):
     for module in model.modules():
         if isinstance(module, nn.BatchNorm1d) or isinstance(module, nn.BatchNorm2d):
@@ -101,7 +110,9 @@ def load_encoder(model, path="simclr_encoder.pth"):
 def nt_xent_loss(z_i, z_j, temperature=0.5):
     batch_size = z_i.shape[0]
     z = torch.cat((z_i, z_j), dim=0)
-    similarity_matrix = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2)
+    # similarity_matrix = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2)
+    similarity_matrix = -poincare_distance(z_i, z_j)  # Hyperbolic similarity
+
 
     labels = torch.cat([torch.arange(batch_size) for _ in range(2)], dim=0)
     labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float().to(z.device)
