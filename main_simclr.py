@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
+experiment = "cifar10"
+
 def reset_batchnorm_running_stats(model):
     for module in model.modules():
         if isinstance(module, nn.BatchNorm1d) or isinstance(module, nn.BatchNorm2d):
@@ -86,11 +88,11 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
 
 
 # ---- Save & Load Functions ----
-def save_encoder(model, path="simclr_encoder.pth"):
+def save_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     torch.save(model.encoder.state_dict(), path)
     print(f"SimCLR encoder saved to {path}")
 
-def load_encoder(model, path="simclr_encoder.pth"):
+def load_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     model.encoder.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     model.encoder.eval()
     print(f"SimCLR encoder loaded from {path}")
@@ -230,7 +232,7 @@ def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
 
 # ---- Main Function ----
 def main():
-    dataset_name = "mnist"
+    dataset_name = "cifar10"
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     train_dataset = get_dataset(dataset_name, train=True)
@@ -239,7 +241,7 @@ def main():
     model = SimCLR(input_channels=1 if dataset_name == "mnist" else 3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     try:
-        load_encoder(model, path="simclr_encoder.pth")
+        load_encoder(model, path="simclr_encoder_cifar_optimal_transport_costmatrix_norm.pth")
         model.encoder.eval()
     except:
         pretrain_simclr(model, train_loader, optimizer, epochs=10, device=device)
@@ -259,7 +261,7 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
     test_classifier(classifier, test_loader, device=device)
 
-    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path="./umap.png")
+    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path=f"./umap_{experiment}.png")
 
 
 if __name__ == "__main__":

@@ -13,12 +13,13 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
+experiment = 'cifar10_sigma0.5'
 
-def save_encoder(model, path="simclr_mmd_encoder.pth"):
+def save_encoder(model, path=f"simclr_mmd_encoder_{experiment}.pth"):
     torch.save(model.encoder.state_dict(), path)
     print(f"SimCLR encoder saved to {path}")
 
-def load_encoder(model, path="simclr_encoder.pth"):
+def load_encoder(model, path=f"simclr_mmd_encoder_{experiment}.pth"):
     model.encoder.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     model.encoder.eval()
     print(f"SimCLR encoder loaded from {path}")
@@ -107,7 +108,7 @@ def get_dataset(name, train=True, is_classification=False):
     return dataset
 
 
-def compute_mmd_loss(x, y, kernel='rbf', sigma=0.1):
+def compute_mmd_loss(x, y, kernel='rbf', sigma=0.5):
     """
     Computes the Maximum Mean Discrepancy (MMD) loss between two distributions.
 
@@ -271,7 +272,7 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
 
 # ---- Main Function ----
 def main():
-    dataset_name = "mnist"
+    dataset_name = "cifar10"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     train_dataset = get_dataset(dataset_name, train=True)
@@ -281,7 +282,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     
     try:
-        load_encoder(model, path="simclr_mmd_encoder.pth")
+        load_encoder(model)
         model.encoder.eval()
     except:
         pretrain_simclr(model, train_loader, optimizer, epochs=10, device=device)
@@ -297,7 +298,7 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
     test_classifier(classifier, test_loader, device=device)
     
-    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path="./mmd_umap.png")
+    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path=f"./mmd_umap_{experiment}.png")
 
 
 if __name__ == "__main__":

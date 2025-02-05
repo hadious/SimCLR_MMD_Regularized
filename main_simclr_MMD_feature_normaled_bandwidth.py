@@ -13,12 +13,13 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
+experiment = 'cifar_normalized'
 
-def save_encoder(model, path="simclr_mmd_encoder.pth"):
+def save_encoder(model, path=f"simclr_mmd_encoder_{experiment}.pth"):
     torch.save(model.encoder.state_dict(), path)
     print(f"SimCLR encoder saved to {path}")
 
-def load_encoder(model, path="simclr_encoder.pth"):
+def load_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     model.encoder.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     model.encoder.eval()
     print(f"SimCLR encoder loaded from {path}")
@@ -107,39 +108,6 @@ def get_dataset(name, train=True, is_classification=False):
     return dataset
 
 
-def compute_mmd_loss(x, y, kernel='rbf', sigma=0.1):
-    """
-    Computes the Maximum Mean Discrepancy (MMD) loss between two distributions.
-
-    Args:
-        x: Tensor of shape (batch_size, feature_dim) - first distribution
-        y: Tensor of shape (batch_size, feature_dim) - second distribution
-        kernel: Type of kernel to use ('rbf' is the default)
-        sigma: Bandwidth parameter for RBF kernel
-
-    Returns:
-        MMD loss value
-    """
-    def rbf_kernel(x, y, sigma):
-        """Compute RBF Kernel."""
-        x_size = x.shape[0]
-        y_size = y.shape[0]
-        dim = x.shape[1]
-        
-        x = x.unsqueeze(1)  # (batch_size, 1, feature_dim)
-        y = y.unsqueeze(0)  # (1, batch_size, feature_dim)
-
-        pairwise_distances = ((x - y) ** 2).sum(2)  # Compute pairwise squared Euclidean distances
-        gamma = 1.0 / (2 * sigma ** 2)
-        return torch.exp(-gamma * pairwise_distances)
-
-    k_xx = rbf_kernel(x, x, sigma).mean()
-    k_yy = rbf_kernel(y, y, sigma).mean()
-    k_xy = rbf_kernel(x, y, sigma).mean()
-
-    return k_xx + k_yy - 2 * k_xy  # MMD loss
-
-
 # ---- SimCLR Model ----
 class SimCLR(nn.Module):
     def __init__(self, base_encoder=resnet18, projection_dim=128, input_channels=3):
@@ -160,36 +128,66 @@ class SimCLR(nn.Module):
         h = self.encoder(x)
         z = self.projection_head(h)
         return h, z
+    
+def adaptive_rbf_kernel(x, y, scale=1.0):
+    pairwise_dists = torch.cdist(x, y, p=2) ** 2  # Squared Euclidean distances
+    median_dist = torch.median(pairwise_dists)  # Adaptive bandwidth
+    return torch.exp(-pairwise_dists / (2 * median_dist * scale))
 
-def pretrain_simclr(model, dataloader, optimizer, epochs=5, device='cuda', lambda_mmd=0.1):
- 
+
+
+def mmd_loss(h_i, h_j, scale=1.0):
+    """
+    Compute Maximum Mean Discrepancy (MMD) loss with an adaptive RBF kernel.
+    """
+    h_i = F.normalize(h_i, p=2, dim=1)  # Normalize features
+    h_j = F.normalize(h_j, p=2, dim=1)
+
+    kernel_ii = adaptive_rbf_kernel(h_i, h_i, scale)
+    kernel_jj = adaptive_rbf_kernel(h_j, h_j, scale)
+    kernel_ij = adaptive_rbf_kernel(h_i, h_j, scale)
+
+    return kernel_ii.mean() + kernel_jj.mean() - 2 * kernel_ij.mean()
+
+
+def batchwise_mmd_loss(features):
+    batch_size = features.shape[0] // 2  # Assume features are (h_i, h_j) stacked
+    h_i, h_j = features[:batch_size], features[batch_size:]
+    return mmd_loss(h_i, h_j)
+
+def pretrain_simclr(model, dataloader, optimizer, lambda_mmd=0.1, epochs=5, device='cuda'):
+    """
+    Pretrains SimCLR with NT-Xent loss and additional batchwise MMD loss on feature space h_i, h_j.
+    """
     model.train()
     for epoch in range(epochs):
-        total_loss = 0
-        total_mmd_loss = 0
-
+        total_loss, total_mmd, total_nt_xent = 0, 0, 0
         for (x_i, x_j), _ in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
+
             x_i, x_j = x_i.to(device), x_j.to(device)
-            h_i, z_i = model(x_i)
+
+            h_i, z_i = model(x_i)  # Feature representation & projection
             h_j, z_j = model(x_j)
 
-            # Compute NT-Xent loss (Original SimCLR loss)
+            # Compute NT-Xent loss
             loss_nt_xent = nt_xent_loss(z_i, z_j)
 
-            # Compute MMD loss on batch-wise embeddings
-            mmd_loss = compute_mmd_loss(h_i, h_j)
+            # Compute batchwise MMD loss on h_i and h_j
+            features = torch.cat([h_i, h_j], dim=0)  # Stack h_i and h_j
+            loss_mmd = batchwise_mmd_loss(features)
 
-            # Total loss: NT-Xent + λ * MMD
-            loss = loss_nt_xent + lambda_mmd * mmd_loss
+            # Combine losses
+            loss = loss_nt_xent + lambda_mmd * loss_mmd
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            total_loss += loss_nt_xent.item()
-            total_mmd_loss += mmd_loss.item()
+            total_loss += loss.item()
+            total_mmd += loss_mmd.item()
+            total_nt_xent += loss_nt_xent.item()
 
-        print(f"Epoch [{epoch+1}/{epochs}], NT-Xent Loss: {total_loss / len(dataloader):.4f}, MMD Loss: {total_mmd_loss / len(dataloader):.4f}")
+        print(f"Epoch [{epoch+1}/{epochs}], Total Loss: {total_loss / len(dataloader):.4f}, NT-Xent: {total_nt_xent / len(dataloader):.4f}, MMD Loss: {total_mmd / len(dataloader):.4f}")
 
     save_encoder(model)
 
@@ -271,7 +269,7 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
 
 # ---- Main Function ----
 def main():
-    dataset_name = "mnist"
+    dataset_name = "cifar10"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     train_dataset = get_dataset(dataset_name, train=True)
@@ -281,7 +279,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     
     try:
-        load_encoder(model, path="simclr_mmd_encoder.pth")
+        load_encoder(model)
         model.encoder.eval()
     except:
         pretrain_simclr(model, train_loader, optimizer, epochs=10, device=device)
@@ -297,7 +295,7 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
     test_classifier(classifier, test_loader, device=device)
     
-    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path="./mmd_umap.png")
+    visualize_latent_space_umap(classifier.encoder, test_loader, device, save_path=f"./mmd_umap_{experiment}.png")
 
 
 if __name__ == "__main__":
