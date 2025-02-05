@@ -75,29 +75,18 @@ def get_dataset(name, train=True, is_classification=False):
     
     return dataset
 
-
-# ---- Train Classifier ----
 def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device='cuda'):
     """
-    Trains a linear classifier on top of the pretrained SimCLR encoder.
-
-    Args:
-        model (nn.Module): Linear classifier model.
-        dataloader (DataLoader): Dataloader for training the classifier.
-        optimizer (torch.optim): Optimizer for training.
-        criterion (nn.Module): Loss function (e.g., CrossEntropyLoss).
-        epochs (int): Number of training epochs.
-        device (str): 'cuda' or 'cpu'.
+    Trains a linear classifier on top of a frozen SimCLR encoder.
     """
     model.train()
     for epoch in range(epochs):
         total_loss, correct, total = 0, 0, 0
-        for x, y in dataloader:
-            x = x.to(device)  # Ensure x is a tensor
-            y = y.to(device)  # Ensure y is a tensor
-            
-            logits = model(x)
-            loss = criterion(logits, y)
+        for x, y in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
+            x, y = x.to(device), y.to(device)
+
+            logits = model(x)  # Forward pass
+            loss = criterion(logits, y)  # Compute loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -169,18 +158,19 @@ class SimCLR(nn.Module):
         return h, z
 
 
-# ---- Linear Classifier ----
 class LinearClassifier(nn.Module):
     def __init__(self, encoder, num_classes=10):
         super(LinearClassifier, self).__init__()
         self.encoder = encoder
-        self.encoder.eval()
-        self.fc = nn.Linear(512, num_classes)
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+        self.fc = nn.Linear(512, num_classes)  # Trainable classifier head
 
     def forward(self, x):
-        with torch.no_grad():
+        with torch.no_grad():  # Ensure encoder does not change
             features = self.encoder(x)
-        return self.fc(features)
+        return self.fc(features)  # Only classifier head is trainable
 
 
 # ---- Pretrain SimCLR ----
@@ -204,9 +194,11 @@ def pretrain_simclr(model, dataloader, optimizer, epochs=5, device='cuda'):
     save_encoder(model)
 
 
-# ---- Test Classifier ----
 def test_classifier(model, dataloader, device='cuda'):
-    model.eval()
+    """
+    Tests the trained classifier on the test dataset.
+    """
+    model.eval() 
     correct, total = 0, 0
     with torch.no_grad():
         for x, y in dataloader:
@@ -228,7 +220,7 @@ def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
     with torch.no_grad():
         for images, labels in dataloader:
             images = images.to(device)
-            latent_representations = encoder.encoder(images)
+            latent_representations = encoder(images)
 
             latent_vectors.append(latent_representations.cpu().numpy())
             labels_list.append(labels.numpy())
@@ -261,13 +253,17 @@ def main():
 
     model = SimCLR(input_channels=1 if dataset_name == "mnist" else 3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    pretrain_simclr(model, train_loader, optimizer, epochs=1, device=device)
+    try:
+        load_encoder(model, path="simclr_encoder.pth")
+        model.encoder.eval()
+    except:
+        pretrain_simclr(model, train_loader, optimizer, epochs=5, device=device)
 
     # Now train classifier
     classifier = LinearClassifier(model.encoder).to(device)
     classifier_dataset = get_dataset(dataset_name, train=True, is_classification=True)
     classifier_dataset_loader = DataLoader(classifier_dataset, batch_size=512, shuffle=True)
-    train_classifier(classifier, classifier_dataset_loader, optimizer, nn.CrossEntropyLoss(), epochs=2, device=device)
+    train_classifier(classifier, classifier_dataset_loader, optimizer, nn.CrossEntropyLoss(), epochs=10, device=device)
 
     test_dataset = get_dataset(dataset_name, train=False, is_classification=True)
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
