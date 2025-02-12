@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
-experiment = "cifar10"
+experiment = "CIFAR10_300Runs"
 
 def reset_batchnorm_running_stats(model):
     for module in model.modules():
@@ -241,10 +241,11 @@ def main():
     model = SimCLR(input_channels=1 if dataset_name == "mnist" else 3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     try:
-        load_encoder(model, path="simclr_encoder_cifar_optimal_transport_costmatrix_norm.pth")
+        load_encoder(model, path="simclr_encoder_CIfar_300_OT.pth")
+        # load_encoder(model)
         model.encoder.eval()
     except:
-        pretrain_simclr(model, train_loader, optimizer, epochs=10, device=device)
+        pretrain_simclr(model, train_loader, optimizer, epochs=300, device=device)
 
     # Now train classifier
     classifier = LinearClassifier(model.encoder).to(device)
@@ -255,7 +256,7 @@ def main():
     classifier_optimizer = optim.Adam(classifier.parameters(), lr=1e-3, weight_decay=1e-6)
 
 
-    train_classifier(classifier, classifier_dataset_loader, classifier_optimizer, nn.CrossEntropyLoss(), epochs=5, device=device)
+    train_classifier(classifier, classifier_dataset_loader, classifier_optimizer, nn.CrossEntropyLoss(), epochs=10, device=device)
 
     test_dataset = get_dataset(dataset_name, train=False, is_classification=True)
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)

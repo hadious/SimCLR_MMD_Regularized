@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
-experiment = "cifar_optimal_transport_costmatrix_norm"
+experiment = "CIfar_300_OT"
 
 def reset_batchnorm_running_stats(model):
     for module in model.modules():
@@ -96,7 +96,7 @@ def load_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     print(f"SimCLR encoder loaded from {path}")
    
    
-def sinkhorn_distance(x, y, epsilon=0.05, n_iter=50):
+def sinkhorn_distance(x, y, epsilon=0.05, n_iter=10):
     """
     Computes the Sinkhorn distance (Optimal Transport) between x and y.
 
@@ -165,7 +165,7 @@ def nt_xent_loss(z_i, z_j, temperature=0.5):
 
 
 
-def contrastive_sinkhorn_loss(z_i, z_j, h_i, h_j, temperature=0.5, lambda_sinkhorn=0.1):
+def contrastive_sinkhorn_loss(z_i, z_j, h_i, h_j, temperature=0.5, lambda_sinkhorn=0.8):
     """
     Computes the NT-Xent loss (contrastive loss) and adds a Sinkhorn regularization term.
     
@@ -261,7 +261,7 @@ def main():
     try:
         load_encoder(model)
     except:
-        pretrain_simclr(model, train_loader, optimizer, epochs=10, device=device)
+        pretrain_simclr(model, train_loader, optimizer, epochs=300, device=device)
 
     classifier = LinearClassifier(model.encoder).to(device)
     classifier_dataset = get_dataset(dataset_name, train=True, is_classification=True)
@@ -269,7 +269,7 @@ def main():
 
     reset_batchnorm_running_stats(classifier.encoder)
     classifier_optimizer = optim.Adam(classifier.parameters(), lr=1e-3, weight_decay=1e-6)
-    train_classifier(classifier, classifier_dataset_loader, classifier_optimizer, nn.CrossEntropyLoss(), epochs=5, device=device)
+    train_classifier(classifier, classifier_dataset_loader, classifier_optimizer, nn.CrossEntropyLoss(), epochs=10, device=device)
 
 if __name__ == "__main__":
     main()
