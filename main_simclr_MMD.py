@@ -26,7 +26,6 @@ def load_encoder(model, path=f"simclr_mmd_encoder_{experiment}.pth"):
 
 
 
-# ---- NT-Xent Loss for SimCLR ----
 def nt_xent_loss(z_i, z_j, temperature=0.5):
     batch_size = z_i.shape[0]
     z = torch.cat((z_i, z_j), dim=0)
@@ -109,18 +108,7 @@ def get_dataset(name, train=True, is_classification=False):
 
 
 def compute_mmd_loss(x, y, kernel='rbf', sigma=0.5):
-    """
-    Computes the Maximum Mean Discrepancy (MMD) loss between two distributions.
 
-    Args:
-        x: Tensor of shape (batch_size, feature_dim) - first distribution
-        y: Tensor of shape (batch_size, feature_dim) - second distribution
-        kernel: Type of kernel to use ('rbf' is the default)
-        sigma: Bandwidth parameter for RBF kernel
-
-    Returns:
-        MMD loss value
-    """
     def rbf_kernel(x, y, sigma):
         """Compute RBF Kernel."""
         x_size = x.shape[0]
@@ -141,7 +129,6 @@ def compute_mmd_loss(x, y, kernel='rbf', sigma=0.5):
     return k_xx + k_yy - 2 * k_xy  # MMD loss
 
 
-# ---- SimCLR Model ----
 class SimCLR(nn.Module):
     def __init__(self, base_encoder=resnet18, projection_dim=128, input_channels=3):
         super(SimCLR, self).__init__()
@@ -174,10 +161,8 @@ def pretrain_simclr(model, dataloader, optimizer, epochs=5, device='cuda', lambd
             h_i, z_i = model(x_i)
             h_j, z_j = model(x_j)
 
-            # Compute NT-Xent loss (Original SimCLR loss)
             loss_nt_xent = nt_xent_loss(z_i, z_j)
 
-            # Compute MMD loss on batch-wise embeddings
             mmd_loss = compute_mmd_loss(h_i, h_j)
 
             # Total loss: NT-Xent + λ * MMD
@@ -196,9 +181,7 @@ def pretrain_simclr(model, dataloader, optimizer, epochs=5, device='cuda', lambd
 
 
 def test_classifier(model, dataloader, device='cuda'):
-    """
-    Tests the trained classifier on the test dataset.
-    """
+
     model.eval() 
     correct, total = 0, 0
     with torch.no_grad():
@@ -213,7 +196,6 @@ def test_classifier(model, dataloader, device='cuda'):
     print(f"Test Accuracy: {acc:.4f}")
 
 
-# ---- Visualization with UMAP ----
 def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
     encoder.eval()
     latent_vectors, labels_list = [], []
@@ -245,9 +227,7 @@ def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
 
 
 def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device='cuda'):
-    """
-    Trains a linear classifier on top of a frozen SimCLR encoder.
-    """
+
     model.train()
     for epoch in range(epochs):
         total_loss, correct, total = 0, 0, 0
@@ -270,7 +250,6 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
 
 
 
-# ---- Main Function ----
 def main():
     dataset_name = "cifar10"
     device = "cuda" if torch.cuda.is_available() else "cpu"

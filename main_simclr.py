@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import os
 import umap
 
-experiment = "CIFAR10_300Runs"
+experiment = "CIFAR10_50Runs_Z"
 
 def reset_batchnorm_running_stats(model):
     for module in model.modules():
@@ -86,8 +86,6 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
 
         print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss / len(dataloader):.4f}, Acc: {correct / total:.4f}")
 
-
-# ---- Save & Load Functions ----
 def save_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     torch.save(model.encoder.state_dict(), path)
     print(f"SimCLR encoder saved to {path}")
@@ -182,9 +180,7 @@ def pretrain_simclr(model, dataloader, optimizer, epochs=5, device='cuda'):
 
 
 def test_classifier(model, dataloader, device='cuda'):
-    """
-    Tests the trained classifier on the test dataset.
-    """
+
     model.eval() 
     correct, total = 0, 0
     with torch.no_grad():
@@ -199,7 +195,7 @@ def test_classifier(model, dataloader, device='cuda'):
     print(f"Test Accuracy: {acc:.4f}")
 
 
-# ---- Visualization with UMAP ----
+
 def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
     encoder.eval()
     latent_vectors, labels_list = [], []
@@ -229,8 +225,6 @@ def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
     else:
         plt.show()
 
-
-# ---- Main Function ----
 def main():
     dataset_name = "cifar10"
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -241,13 +235,12 @@ def main():
     model = SimCLR(input_channels=1 if dataset_name == "mnist" else 3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
     try:
-        load_encoder(model, path="simclr_encoder_CIfar_300_OT.pth")
+        load_encoder(model, path="simclr_encoder_CIfar_50_OT_on_Z.pth")
         # load_encoder(model)
         model.encoder.eval()
     except:
         pretrain_simclr(model, train_loader, optimizer, epochs=300, device=device)
 
-    # Now train classifier
     classifier = LinearClassifier(model.encoder).to(device)
     classifier_dataset = get_dataset(dataset_name, train=True, is_classification=True)
     classifier_dataset_loader = DataLoader(classifier_dataset, batch_size=512, shuffle=True)

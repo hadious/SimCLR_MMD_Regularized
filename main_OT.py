@@ -61,17 +61,15 @@ def get_dataset(name, train=True, is_classification=False):
     return dataset
 
 def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device='cuda'):
-    """
-    Trains a linear classifier on top of a frozen SimCLR encoder.
-    """
+
     model.train()
     for epoch in range(epochs):
         total_loss, correct, total = 0, 0, 0
         for x, y in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
             x, y = x.to(device), y.to(device)
 
-            logits = model(x)  # Forward pass
-            loss = criterion(logits, y)  # Compute loss
+            logits = model(x) 
+            loss = criterion(logits, y)  
 
             optimizer.zero_grad()
             loss.backward()
@@ -85,7 +83,6 @@ def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device=
         print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss / len(dataloader):.4f}, Acc: {correct / total:.4f}")
 
 
-# ---- Save & Load Functions ----
 def save_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     torch.save(model.encoder.state_dict(), path)
     print(f"SimCLR encoder saved to {path}")
@@ -96,55 +93,38 @@ def load_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
     print(f"SimCLR encoder loaded from {path}")
    
    
-def sinkhorn_distance(x, y, epsilon=0.05, n_iter=10):
-    """
-    Computes the Sinkhorn distance (Optimal Transport) between x and y.
+def sinkhorn_distance(x, y, epsilon=0.05, n_iter=50):
 
-    Args:
-        x: Tensor of shape (batch_size, d)
-        y: Tensor of shape (batch_size, d)
-        epsilon: Regularization coefficient
-        n_iter: Number of Sinkhorn iterations
-
-    Returns:
-        Sinkhorn loss value
-    """
     batch_size = x.shape[0]
     
-    # Compute cost matrix using squared Euclidean distance
-    cost_matrix = torch.cdist(x, y, p=2) ** 2 + 1e-6  # Adding small eps for stability
+    cost_matrix = torch.cdist(x, y, p=2) ** 2 + 1e-6  
     cost_matrix = cost_matrix / cost_matrix.max().detach()
 
     
 
 
-    # Initialize dual potentials
     u = torch.zeros(batch_size, device=x.device)
     v = torch.zeros(batch_size, device=x.device)
 
     for _ in range(n_iter):
-        u_prev, v_prev = u.clone(), v.clone()  # Store previous values
+        u_prev, v_prev = u.clone(), v.clone() 
         u = -epsilon * torch.logsumexp(-cost_matrix / epsilon + v.view(1, -1), dim=1)
         v = -epsilon * torch.logsumexp(-cost_matrix / epsilon + u.view(-1, 1), dim=0)
 
 
         # import pdb;pdb.set_trace()
 
-        # Normalize `u` and `v` to prevent exploding or vanishing updates
         u -= u.mean()
         v -= v.mean()
 
-        # If updates are very small, stop early
         if torch.norm(u - u_prev) < 1e-3 and torch.norm(v - v_prev) < 1e-3:
             break
 
-    # Compute Sinkhorn loss using cost matrix and soft assignment
     transport_cost = torch.sum(cost_matrix * torch.exp(-cost_matrix / epsilon))
     
     return transport_cost / batch_size
 
 
-# ---- NT-Xent Loss for SimCLR ----
 def nt_xent_loss(z_i, z_j, temperature=0.5):
     batch_size = z_i.shape[0]
     z = torch.cat((z_i, z_j), dim=0)
@@ -166,25 +146,11 @@ def nt_xent_loss(z_i, z_j, temperature=0.5):
 
 
 def contrastive_sinkhorn_loss(z_i, z_j, h_i, h_j, temperature=0.5, lambda_sinkhorn=0.8):
-    """
-    Computes the NT-Xent loss (contrastive loss) and adds a Sinkhorn regularization term.
-    
-    Arguments:
-        z_i, z_j: Projected features (contrastive learning features)
-        h_i, h_j: Embedding space features (used for Sinkhorn regularization)
-        temperature: Temperature parameter for NT-Xent
-        lambda_sinkhorn: Weight for Sinkhorn regularization
 
-    Returns:
-        Total loss = NT-Xent loss + λ * Sinkhorn regularization
-    """
-    # Compute standard SimCLR loss (contrastive learning)
     contrastive_loss = nt_xent_loss(z_i, z_j, temperature=temperature)
 
-    # Compute Sinkhorn regularization on the embeddings h_i and h_j
     sinkhorn_reg = sinkhorn_distance(h_i, h_j)
 
-    # Final loss with weighted Sinkhorn regularizer
     # import pdb; pdb.set_trace()
     total_loss = contrastive_loss + lambda_sinkhorn * sinkhorn_reg
 

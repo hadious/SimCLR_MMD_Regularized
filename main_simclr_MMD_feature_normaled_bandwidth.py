@@ -26,7 +26,6 @@ def load_encoder(model, path=f"simclr_encoder_{experiment}.pth"):
 
 
 
-# ---- NT-Xent Loss for SimCLR ----
 def nt_xent_loss(z_i, z_j, temperature=0.5):
     batch_size = z_i.shape[0]
     z = torch.cat((z_i, z_j), dim=0)
@@ -93,7 +92,6 @@ class SimCLRTransform:
             return self.transform(x)   
         return self.transform(x), self.transform(x)   
 
-# ---- Dataset Loader ----
 def get_dataset(name, train=True, is_classification=False):
     num_channels = 1 if name == 'mnist' else 3
     transform = SimCLRTransform(num_channels, is_classification)
@@ -108,7 +106,6 @@ def get_dataset(name, train=True, is_classification=False):
     return dataset
 
 
-# ---- SimCLR Model ----
 class SimCLR(nn.Module):
     def __init__(self, base_encoder=resnet18, projection_dim=128, input_channels=3):
         super(SimCLR, self).__init__()
@@ -130,17 +127,15 @@ class SimCLR(nn.Module):
         return h, z
     
 def adaptive_rbf_kernel(x, y, scale=1.0):
-    pairwise_dists = torch.cdist(x, y, p=2) ** 2  # Squared Euclidean distances
-    median_dist = torch.median(pairwise_dists)  # Adaptive bandwidth
+    pairwise_dists = torch.cdist(x, y, p=2) ** 2  
+    median_dist = torch.median(pairwise_dists)  
     return torch.exp(-pairwise_dists / (2 * median_dist * scale))
 
 
 
 def mmd_loss(h_i, h_j, scale=1.0):
-    """
-    Compute Maximum Mean Discrepancy (MMD) loss with an adaptive RBF kernel.
-    """
-    h_i = F.normalize(h_i, p=2, dim=1)  # Normalize features
+
+    h_i = F.normalize(h_i, p=2, dim=1)  
     h_j = F.normalize(h_j, p=2, dim=1)
 
     kernel_ii = adaptive_rbf_kernel(h_i, h_i, scale)
@@ -151,14 +146,12 @@ def mmd_loss(h_i, h_j, scale=1.0):
 
 
 def batchwise_mmd_loss(features):
-    batch_size = features.shape[0] // 2  # Assume features are (h_i, h_j) stacked
+    batch_size = features.shape[0] // 2 
     h_i, h_j = features[:batch_size], features[batch_size:]
     return mmd_loss(h_i, h_j)
 
 def pretrain_simclr(model, dataloader, optimizer, lambda_mmd=0.1, epochs=5, device='cuda'):
-    """
-    Pretrains SimCLR with NT-Xent loss and additional batchwise MMD loss on feature space h_i, h_j.
-    """
+
     model.train()
     for epoch in range(epochs):
         total_loss, total_mmd, total_nt_xent = 0, 0, 0
@@ -166,17 +159,14 @@ def pretrain_simclr(model, dataloader, optimizer, lambda_mmd=0.1, epochs=5, devi
 
             x_i, x_j = x_i.to(device), x_j.to(device)
 
-            h_i, z_i = model(x_i)  # Feature representation & projection
+            h_i, z_i = model(x_i)  
             h_j, z_j = model(x_j)
 
-            # Compute NT-Xent loss
             loss_nt_xent = nt_xent_loss(z_i, z_j)
 
-            # Compute batchwise MMD loss on h_i and h_j
-            features = torch.cat([h_i, h_j], dim=0)  # Stack h_i and h_j
+            features = torch.cat([h_i, h_j], dim=0) 
             loss_mmd = batchwise_mmd_loss(features)
 
-            # Combine losses
             loss = loss_nt_xent + lambda_mmd * loss_mmd
 
             optimizer.zero_grad()
@@ -193,9 +183,7 @@ def pretrain_simclr(model, dataloader, optimizer, lambda_mmd=0.1, epochs=5, devi
 
 
 def test_classifier(model, dataloader, device='cuda'):
-    """
-    Tests the trained classifier on the test dataset.
-    """
+
     model.eval() 
     correct, total = 0, 0
     with torch.no_grad():
@@ -210,7 +198,6 @@ def test_classifier(model, dataloader, device='cuda'):
     print(f"Test Accuracy: {acc:.4f}")
 
 
-# ---- Visualization with UMAP ----
 def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
     encoder.eval()
     latent_vectors, labels_list = [], []
@@ -242,9 +229,7 @@ def visualize_latent_space_umap(encoder, dataloader, device, save_path=None):
 
 
 def train_classifier(model, dataloader, optimizer, criterion, epochs=20, device='cuda'):
-    """
-    Trains a linear classifier on top of a frozen SimCLR encoder.
-    """
+
     model.train()
     for epoch in range(epochs):
         total_loss, correct, total = 0, 0, 0
